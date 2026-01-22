@@ -1,0 +1,49 @@
+// HuxORB_Bridge_EA.mq4
+#property strict
+
+input double RiskPerTradePct = 0.5;
+input int MaxTradesPerDay = 2;
+input int MaxSpreadPoints = 20;
+input int ServerUtcOffsetHrs = 2;
+
+datetime lastTradeDay = 0;
+int tradesToday = 0;
+
+int OnInit() { return(INIT_SUCCEEDED); }
+
+int start() {
+   datetime now = TimeCurrent();
+   int hour = TimeHour(now - ServerUtcOffsetHrs * 3600);
+
+   if(TimeDay(lastTradeDay) != TimeDay(now)) {
+      tradesToday = 0;
+      lastTradeDay = now;
+   }
+
+   if(tradesToday >= MaxTradesPerDay) return(0);
+
+   int spread = MarketInfo(Symbol(), MODE_SPREAD);
+   if(spread > MaxSpreadPoints) return(0);
+
+   if(!((hour >= 7 && hour < 10) || (hour >= 12 && hour < 16)))
+      return(0);
+
+   int h = FileOpen("HUX_SIGNAL.csv", FILE_READ|FILE_CSV);
+   if(h == INVALID_HANDLE) return(0);
+
+   string sym = FileReadString(h);
+   string side = FileReadString(h);
+   double sl = StrToDouble(FileReadString(h));
+   double tp = StrToDouble(FileReadString(h));
+   FileClose(h);
+
+   double lot = NormalizeDouble(AccountBalance() * RiskPerTradePct / 100.0 / 1000.0, 2);
+   int type = side == "BUY" ? OP_BUY : OP_SELL;
+   double price = type == OP_BUY ? Ask : Bid;
+
+   int ticket = OrderSend(sym, type, lot, price, 10, sl, tp, "HuxORB", 12345, 0, clrGreen);
+   if(ticket > 0) tradesToday++;
+
+   FileDelete("HUX_SIGNAL.csv");
+   return(0);
+}
