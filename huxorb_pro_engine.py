@@ -651,6 +651,19 @@ def print_metrics(metrics):
     print("BACKTEST RESULTS")
     print(f"{'='*60}")
     print(f"Total Trades:        {metrics['total_trades']}")
+
+    if metrics['total_trades'] == 0:
+        print("\nNo trades generated.")
+        print("\nPossible reasons:")
+        print("  1. Strategy is very selective (all 7 gates must align)")
+        print("  2. Data may not contain suitable ICT setups")
+        print("  3. Sessions: Check data timestamps are in UTC")
+        print("  4. Spread: Check spread values in data")
+        print(f"\nTip: ICT setups are rare but high-quality.")
+        print(f"     Typical rate: 2-5 signals per week on real EURUSD M5 data.")
+        print(f"{'='*60}\n")
+        return
+
     print(f"Wins:                {metrics['wins']} ({metrics['win_rate']:.1f}%)")
     print(f"Losses:              {metrics['losses']}")
     print(f"Breakevens:          {metrics['breakevens']}")
