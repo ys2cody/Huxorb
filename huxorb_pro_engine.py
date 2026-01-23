@@ -16,8 +16,13 @@ Strategy Components:
 6. Displacement + FVG (strong move creating fair value gap)
 7. Entry on retrace into FVG/Order Block
 
+ALIGNMENT WINDOW: ICT setups can unfold across 2-3 bars (v1.1.0 update)
+- Allows sweep, BOS, and FVG to occur within a 3-bar window
+- Maintains directional alignment requirement
+- Justification: Real ICT patterns unfold over 10-15 minutes (2-3 M5 bars)
+
 Author: HuxORB Team
-Version: 1.0.0 - Production Release
+Version: 1.1.0 - Alignment Window Update
 """
 
 import pandas as pd
@@ -307,9 +312,67 @@ def find_order_block(df, i, direction):
 # SIGNAL GENERATION
 # ============================================================================
 
+def check_alignment_window(df, i, symbol="EURUSD", lookback=3):
+    """
+    Check for aligned ICT setup within a lookback window.
+
+    ICT setups often unfold across 2-5 bars (10-25 minutes on M5):
+    - Bar i-2: Liquidity sweep occurs
+    - Bar i-1: BOS confirmation
+    - Bar i: FVG forms with displacement
+
+    This function checks if sweep + BOS + FVG all exist within the window
+    and are directionally aligned.
+
+    Returns: (sweep_type, sweep_level, fvg_type, fvg_high, fvg_low, disp_pips) or (None, ...)
+    """
+    # Check each bar in the lookback window
+    for check_idx in range(max(i - lookback, 0), i + 1):
+        # Look for FVG at check_idx
+        fvg_type, fvg_high, fvg_low, disp_pips = detect_displacement_and_fvg(df, check_idx, symbol)
+        if fvg_type is None:
+            continue
+
+        # Found FVG, now look for sweep and BOS in recent bars (check_idx-3 to check_idx)
+        sweep_found = None
+        sweep_level_found = None
+        bos_found = None
+
+        for recent_idx in range(max(check_idx - 3, 0), check_idx + 1):
+            # Check for sweep
+            if sweep_found is None:
+                sweep_type, sweep_level = detect_liquidity_sweep(df, recent_idx)
+                if sweep_type is not None:
+                    sweep_found = sweep_type
+                    sweep_level_found = sweep_level
+
+            # Check for BOS
+            if bos_found is None:
+                bos = detect_bos(df, recent_idx)
+                if bos is not None:
+                    bos_found = bos
+
+        # Check if we have all components
+        if sweep_found is None or bos_found is None:
+            continue
+
+        # Check directional alignment
+        if fvg_type == 'bullish_fvg':
+            if sweep_found == 'bullish_sweep' and bos_found == 'bullish_bos':
+                return sweep_found, sweep_level_found, fvg_type, fvg_high, fvg_low, disp_pips
+        elif fvg_type == 'bearish_fvg':
+            if sweep_found == 'bearish_sweep' and bos_found == 'bearish_bos':
+                return sweep_found, sweep_level_found, fvg_type, fvg_high, fvg_low, disp_pips
+
+    return None, None, None, None, None, 0
+
+
 def generate_signal(df, i, symbol="EURUSD", max_spread=MAX_SPREAD_EURUSD):
     """
     Generate trade signal if all conditions met.
+
+    NOW WITH ALIGNMENT WINDOW: Allows ICT setups to unfold across 2-3 bars
+    instead of requiring everything on the same bar.
 
     Returns: dict with signal details or None
     """
@@ -329,31 +392,10 @@ def generate_signal(df, i, symbol="EURUSD", max_spread=MAX_SPREAD_EURUSD):
     if not detect_regime(df, i):
         return None
 
-    # Gate 4: Liquidity sweep detection
-    sweep_type, sweep_level = detect_liquidity_sweep(df, i)
-    if sweep_type is None:
-        return None
+    # Gates 4-6: Check for aligned setup within 3-bar window
+    sweep_type, sweep_level, fvg_type, fvg_high, fvg_low, disp_pips = check_alignment_window(df, i, symbol, lookback=3)
 
-    # Gate 5: BOS confirmation
-    bos = detect_bos(df, i)
-    if bos is None:
-        return None
-
-    # Check alignment: bullish sweep needs bullish BOS
-    if sweep_type == 'bullish_sweep' and bos != 'bullish_bos':
-        return None
-    if sweep_type == 'bearish_sweep' and bos != 'bearish_bos':
-        return None
-
-    # Gate 6: Displacement + FVG
-    fvg_type, fvg_high, fvg_low, disp_pips = detect_displacement_and_fvg(df, i, symbol)
-    if fvg_type is None:
-        return None
-
-    # Check alignment
-    if sweep_type == 'bullish_sweep' and fvg_type != 'bullish_fvg':
-        return None
-    if sweep_type == 'bearish_sweep' and fvg_type != 'bearish_fvg':
+    if sweep_type is None or fvg_type is None:
         return None
 
     # Gate 7: Entry on retrace into FVG/OB
