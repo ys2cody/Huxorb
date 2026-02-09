@@ -1,0 +1,24 @@
+CRYPTO_BOT FILE STRUCTURE (Step 2: Exchange Layer)
+==================================================
+
+crypto_bot/
+├── core/
+│   ├── __init__.py
+│   ├── config.py                      # Config schema (pydantic) + env loading
+│   ├── exchange/
+│   │   ├── __init__.py
+│   │   ├── models.py                  # Data models (Order, Balance, Ticker, etc.)
+│   │   ├── base.py                    # IExchange abstract interface
+│   │   ├── ccxt_spot.py               # CCXT implementation (spot-only enforced)
+│   │   └── mock.py                    # MockExchange for unit tests
+│   └── utils/
+│       ├── __init__.py
+│       └── logging.py                 # Structured logging setup
+├── scripts/
+│   └── exchange_smoketest.py          # CLI: test connectivity, dry-run orders
+├── tests/
+│   ├── __init__.py
+│   ├── test_exchange_mock.py          # Unit tests for MockExchange
+│   └── test_exchange_models.py        # Unit tests for data models
+├── requirements.txt                   # Python dependencies
+└── README_EXCHANGE.md                 # Setup guide (API keys, dry-run usage)
