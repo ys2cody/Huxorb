@@ -1,0 +1,28 @@
+# Environment
+.env
+*.env
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Data
+*.csv
+*.db
+*.sqlite
+backtest_results/
