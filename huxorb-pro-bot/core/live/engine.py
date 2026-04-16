@@ -88,6 +88,9 @@ class LiveTradingConfig:
     alert_webhook_url: str = ""
     state_dir: Path = None
 
+    # Aggressive regime filter: trade in bear markets if per-symbol trend is strong
+    aggressive_mode: bool = False
+
     @classmethod
     def from_env(cls, env_file: Optional[Path] = None) -> "LiveTradingConfig":
         """
@@ -130,6 +133,7 @@ class LiveTradingConfig:
             poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "3600")),
             alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", ""),
             state_dir=Path(os.getenv("STATE_DIR", "data/live_state")),
+            aggressive_mode=os.getenv("AGGRESSIVE_MODE", "false").lower() == "true",
         )
 
     def __post_init__(self):
@@ -207,7 +211,9 @@ class LiveTradingEngine:
         )
 
         # Strategy
-        self.regime_filter = RegimeFilter()
+        from core.strategy.regime import RegimeConfig
+        regime_cfg = RegimeConfig(aggressive_mode=config.aggressive_mode)
+        self.regime_filter = RegimeFilter(regime_cfg)
         self.trend_strategy = TrendFollowingStrategy()
         self.meanrev_strategy = MeanReversionStrategy()
         self.breakout_strategy = BreakoutStrategy()
@@ -263,6 +269,7 @@ class LiveTradingEngine:
         print(f"  Balance:    {self._starting_balance} USDT")
         print(f"  Symbols:    {len(self.config.symbols)} ({', '.join(self.config.symbols[:5])}...)")
         print(f"  Risk/trade: {self.config.risk_per_trade_pct}%")
+        print(f"  Aggressive: {'ON (relaxed macro gate)' if self.config.aggressive_mode else 'OFF'}")
         print(f"  Poll:       {self.config.poll_interval_seconds}s")
         print("=" * 60)
         print()

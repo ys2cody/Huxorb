@@ -52,6 +52,12 @@ class RegimeConfig:
     atr_period: int = 14
     atr_low_vol_percentile: float = 25.0  # Bottom quartile
 
+    # Aggressive mode: loosen BTC macro gate
+    # - Normal mode: requires BOTH (BTC > 200MA AND golden cross)
+    # - Aggressive mode: requires EITHER, OR lets strong per-symbol ADX override
+    aggressive_mode: bool = False
+    aggressive_adx_override: float = 30.0  # In aggressive mode, allow TREND when per-symbol ADX exceeds this
+
 
 @dataclass
 class RegimeState:
@@ -192,7 +198,12 @@ class RegimeFilter:
                 return Regime.LOW_VOL, f"atr={atr_val:.2f} < {atr_thresh:.2f}"
 
         # 2. Check BTC macro for trend permission
-        btc_trend_ok = btc_above_200 and btc_golden
+        if self.config.aggressive_mode:
+            # Aggressive: accept EITHER signal as permission
+            btc_trend_ok = btc_above_200 or btc_golden
+        else:
+            # Normal: require BOTH signals
+            btc_trend_ok = btc_above_200 and btc_golden
 
         # 3. Check ADX
         if adx_val is None:
@@ -205,6 +216,10 @@ class RegimeFilter:
         # ADX >= threshold: trending
         if btc_trend_ok:
             return Regime.TREND, f"btc_bullish + adx={adx_val:.1f}"
-        else:
-            # Trending but BTC macro not supportive - safer to skip
-            return Regime.UNKNOWN, f"adx={adx_val:.1f} but btc_macro_bearish"
+
+        # Aggressive override: strong per-symbol trend can bypass macro gate
+        if self.config.aggressive_mode and adx_val >= self.config.aggressive_adx_override:
+            return Regime.TREND, f"aggressive: adx={adx_val:.1f} >= {self.config.aggressive_adx_override} (macro bypass)"
+
+        # Trending but BTC macro not supportive - safer to skip
+        return Regime.UNKNOWN, f"adx={adx_val:.1f} but btc_macro_bearish"
