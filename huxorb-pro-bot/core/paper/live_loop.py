@@ -58,18 +58,24 @@ class PaperTradingConfig:
     poll_interval_seconds: int = 3600  # 1 hour
     ohlcv_limit: int = 300  # Bars to fetch
 
-    # Capital
-    starting_balance: Decimal = Decimal("10000")
-    risk_per_trade_pct: Decimal = Decimal("0.5")
-    max_open_trades: int = 2
-    max_trades_per_day: int = 3
+    # Capital (Aggressive growth defaults)
+    starting_balance: Decimal = Decimal("500")
+    risk_per_trade_pct: Decimal = Decimal("1.5")
+    max_open_trades: int = 4
+    max_trades_per_day: int = 6
 
     # State persistence
     state_dir: Path = None
 
     def __post_init__(self):
         if self.symbols is None:
-            self.symbols = ["BTC/USDT", "ETH/USDT"]
+            # Aggressive default: top 20 altcoins by market cap
+            self.symbols = [
+                "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+                "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT",
+                "MATIC/USDT", "LTC/USDT", "NEAR/USDT", "UNI/USDT", "ATOM/USDT",
+                "APT/USDT", "FIL/USDT", "ARB/USDT", "INJ/USDT", "OP/USDT",
+            ]
         if self.state_dir is None:
             self.state_dir = Path(__file__).parent.parent.parent / "data" / "paper_state"
 

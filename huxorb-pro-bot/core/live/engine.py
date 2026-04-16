@@ -78,10 +78,10 @@ class LiveTradingConfig:
     poll_interval_seconds: int = 3600
     ohlcv_limit: int = 300
 
-    starting_balance: Decimal = Decimal("10000")
-    risk_per_trade_pct: Decimal = Decimal("0.5")
-    max_open_trades: int = 2
-    max_trades_per_day: int = 3
+    starting_balance: Decimal = Decimal("500")
+    risk_per_trade_pct: Decimal = Decimal("1.5")
+    max_open_trades: int = 4
+    max_trades_per_day: int = 6
 
     alert_webhook_url: str = ""
     state_dir: Path = None
@@ -110,11 +110,17 @@ class LiveTradingConfig:
             passphrase=os.getenv("KUCOIN_PASSPHRASE", ""),
             testnet=os.getenv("KUCOIN_TESTNET", "true").lower() == "true",
             dry_run=os.getenv("DRY_RUN", "true").lower() == "true",
-            symbols=os.getenv("SYMBOLS", "BTC/USDT,ETH/USDT").split(","),
-            starting_balance=Decimal(os.getenv("STARTING_BALANCE", "10000")),
-            risk_per_trade_pct=Decimal(os.getenv("RISK_PER_TRADE_PCT", "0.5")),
-            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "2")),
-            max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "3")),
+            symbols=os.getenv(
+                "SYMBOLS",
+                "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT,ADA/USDT,"
+                "DOGE/USDT,AVAX/USDT,LINK/USDT,DOT/USDT,MATIC/USDT,LTC/USDT,"
+                "NEAR/USDT,UNI/USDT,ATOM/USDT,APT/USDT,FIL/USDT,ARB/USDT,"
+                "INJ/USDT,OP/USDT",
+            ).split(","),
+            starting_balance=Decimal(os.getenv("STARTING_BALANCE", "500")),
+            risk_per_trade_pct=Decimal(os.getenv("RISK_PER_TRADE_PCT", "1.5")),
+            max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "4")),
+            max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "6")),
             poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "3600")),
             alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", ""),
             state_dir=Path(os.getenv("STATE_DIR", "data/live_state")),
