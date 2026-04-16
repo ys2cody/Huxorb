@@ -96,6 +96,9 @@ class LiveTradingConfig:
     # Expected: £1-5/month on £100, not a route to riches.
     bear_mode: bool = False
 
+    # Automatically exit bear mode when BTC macro improves (above 200MA + golden cross)
+    auto_bear_mode_exit: bool = False
+
     @classmethod
     def from_env(cls, env_file: Optional[Path] = None) -> "LiveTradingConfig":
         """
@@ -140,6 +143,7 @@ class LiveTradingConfig:
             state_dir=Path(os.getenv("STATE_DIR", "data/live_state")),
             aggressive_mode=os.getenv("AGGRESSIVE_MODE", "false").lower() == "true",
             bear_mode=os.getenv("BEAR_MODE", "false").lower() == "true",
+            auto_bear_mode_exit=os.getenv("AUTO_BEAR_MODE_EXIT", "false").lower() == "true",
         )
 
     def __post_init__(self):
@@ -342,6 +346,9 @@ class LiveTradingEngine:
         if btc_daily.empty:
             logger.warning("live_skip", reason="no_btc_daily_data")
             return
+
+        # 1.5. Auto-exit bear mode if market recovered
+        self._check_auto_bear_exit(btc_daily)
 
         # 2. Process each symbol
         for symbol in self.config.symbols:
@@ -552,6 +559,71 @@ class LiveTradingEngine:
                 exit_reason = reason
                 pnl = Decimal("0")  # Placeholder — would need to calc from fill prices
             self.alerts.on_trade_exit(_FakeTrade())
+
+    def _check_auto_bear_exit(self, btc_daily: pd.DataFrame) -> None:
+        """
+        Automatically exit bear mode if BTC macro conditions improve.
+
+        Conditions to exit bear mode:
+        - BTC close > 200-day EMA
+        - BTC 50-day EMA > 200-day EMA (golden cross)
+        """
+        if not self.config.auto_bear_mode_exit:
+            return
+
+        if not self.config.bear_mode:
+            return  # Not in bear mode, nothing to exit
+
+        if len(btc_daily) < 210:
+            return  # Not enough data
+
+        # Calculate BTC macro conditions
+        from core.strategy.indicators import ema
+        btc_close = btc_daily["close"]
+        btc_ema50 = ema(btc_close, 50)
+        btc_ema200 = ema(btc_close, 200)
+
+        btc_above_200 = btc_close.iloc[-1] > btc_ema200.iloc[-1]
+        btc_golden = btc_ema50.iloc[-1] > btc_ema200.iloc[-1]
+
+        # Exit bear mode if both conditions met
+        if btc_above_200 and btc_golden:
+            logger.info(
+                "auto_bear_exit_triggered",
+                btc_above_200=btc_above_200,
+                btc_golden=btc_golden,
+                btc_price=float(btc_close.iloc[-1]),
+                btc_ema200=float(btc_ema200.iloc[-1]),
+            )
+
+            # Reinitialize to standard settings
+            self.config.bear_mode = False
+            # Restore original symbols from env (or default to top 20)
+            from core.live.engine import LiveTradingConfig
+            temp_config = LiveTradingConfig.from_env()
+            self.config.symbols = temp_config.symbols
+            self.config.risk_per_trade_pct = temp_config.risk_per_trade_pct
+            self.config.max_open_trades = temp_config.max_open_trades
+            self.config.max_trades_per_day = temp_config.max_trades_per_day
+
+            # Update risk manager with new settings
+            self.risk.risk_per_trade_pct = self.config.risk_per_trade_pct
+            self.risk.max_open_trades = self.config.max_open_trades
+            self.risk.max_trades_per_day = self.config.max_trades_per_day
+
+            # Send alert
+            self.alerts.on_drawdown_warning(
+                0,
+                Decimal("0"),
+                f"AUTO-SWITCH: Bear mode OFF — BTC recovered (${btc_close.iloc[-1]:.0f} > 200MA). "
+                f"Trading {len(self.config.symbols)} symbols with {self.config.risk_per_trade_pct}% risk."
+            )
+
+            logger.info(
+                "auto_bear_exit_complete",
+                symbols=len(self.config.symbols),
+                risk_pct=str(self.config.risk_per_trade_pct),
+            )
 
     def _fetch_ohlcv(self, symbol: str, timeframe: str) -> pd.DataFrame:
         """Fetch OHLCV from KuCoin."""
