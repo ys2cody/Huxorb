@@ -30,6 +30,11 @@ from typing import Dict, Optional
 import pandas as pd
 
 from core.backtest.data_loader import fetch_ohlcv_ccxt
+from core.dashboard import (
+    AlertManager,
+    ConsoleAlertHandler,
+    TelegramAlertHandler,
+)
 from core.paper.portfolio import PaperPortfolio
 from core.ruleguard import (
     RiskManager,
@@ -66,6 +71,10 @@ class PaperTradingConfig:
 
     # State persistence
     state_dir: Path = None
+
+    # Telegram alerts (optional) — phone notifications for paper trades
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     def __post_init__(self):
         if self.symbols is None:
@@ -142,6 +151,18 @@ class PaperTradingLoop:
         self.breakout_strategy = __import__(
             "core.strategy.breakout", fromlist=["BreakoutStrategy"]
         ).BreakoutStrategy()
+
+        # Alerts
+        self.alerts = AlertManager()
+        self.alerts.add_handler(ConsoleAlertHandler())
+        if config.telegram_bot_token and config.telegram_chat_id:
+            self.alerts.add_handler(
+                TelegramAlertHandler(
+                    bot_token=config.telegram_bot_token,
+                    chat_id=config.telegram_chat_id,
+                )
+            )
+            logger.info("paper_telegram_alerts_enabled")
 
         self._running = False
         self._last_bar_time: Dict[str, datetime] = {}
@@ -245,6 +266,7 @@ class PaperTradingLoop:
                 reason=trade.exit_reason,
                 pnl=str(trade.pnl),
             )
+            self.alerts.on_trade_exit(trade)
 
         # --- Check for new entry ---
         if len(self.portfolio.open_positions) >= self.config.max_open_trades:
@@ -312,7 +334,7 @@ class PaperTradingLoop:
 
         # --- Open paper position ---
         try:
-            self.portfolio.open_position(
+            position = self.portfolio.open_position(
                 symbol=symbol,
                 quantity=quantity,
                 entry_price=signal.entry_price,
@@ -334,6 +356,7 @@ class PaperTradingLoop:
                 qty=str(quantity),
                 reason=signal.reason,
             )
+            self.alerts.on_trade_entry(position)
         except ValueError as exc:
             logger.warning("paper_entry_failed", symbol=symbol, error=str(exc))
 
