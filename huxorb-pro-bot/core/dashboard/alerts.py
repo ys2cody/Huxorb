@@ -104,6 +104,73 @@ class WebhookAlertHandler:
             logger.warning("webhook_alert_failed", error=str(exc))
 
 
+class TelegramAlertHandler:
+    """
+    Sends alerts to a Telegram chat via the Bot API.
+
+    Setup:
+      1. Open Telegram, message @BotFather, send /newbot, follow prompts.
+         BotFather gives you a token like 123456:ABC-DEF...
+      2. Message your new bot at least once (say "hi").
+      3. Visit https://api.telegram.org/bot<TOKEN>/getUpdates in a browser.
+         Find "chat":{"id": NUMBER} — that's your TELEGRAM_CHAT_ID.
+      4. Put TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in your .env file.
+
+    By default sends every alert (INFO, WARNING, CRITICAL) since Telegram
+    is personal and unobtrusive. Pass min_level=AlertLevel.WARNING to mute
+    routine entries/exits.
+    """
+
+    LEVEL_EMOJI = {
+        AlertLevel.INFO: "ℹ️",
+        AlertLevel.WARNING: "⚠️",
+        AlertLevel.CRITICAL: "🚨",
+    }
+
+    def __init__(
+        self,
+        bot_token: str,
+        chat_id: str,
+        min_level: AlertLevel = AlertLevel.INFO,
+    ):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+        self.min_level = min_level
+        self._levels_order = [AlertLevel.INFO, AlertLevel.WARNING, AlertLevel.CRITICAL]
+        self._api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+    def _level_rank(self, level: AlertLevel) -> int:
+        try:
+            return self._levels_order.index(level)
+        except ValueError:
+            return 0
+
+    def handle(self, alert: Alert) -> None:
+        if self._level_rank(alert.level) < self._level_rank(self.min_level):
+            return
+        try:
+            import requests  # optional dependency
+            emoji = self.LEVEL_EMOJI.get(alert.level, "")
+            ts = alert.timestamp.strftime("%H:%M UTC")
+            text = (
+                f"{emoji} *{alert.title}*\n"
+                f"{alert.message}\n"
+                f"_{ts}_"
+            )
+            requests.post(
+                self._api_url,
+                json={
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "disable_web_page_preview": True,
+                },
+                timeout=5,
+            )
+        except Exception as exc:
+            logger.warning("telegram_alert_failed", error=str(exc))
+
+
 # ------------------------------------------------------------------ #
 # AlertManager
 # ------------------------------------------------------------------ #

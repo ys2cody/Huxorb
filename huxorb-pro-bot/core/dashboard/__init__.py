@@ -16,6 +16,7 @@ from core.dashboard.alerts import (
     Alert,
     ConsoleAlertHandler,
     WebhookAlertHandler,
+    TelegramAlertHandler,
 )
 from core.dashboard.exporter import TradeExporter
 
@@ -26,5 +27,6 @@ __all__ = [
     "Alert",
     "ConsoleAlertHandler",
     "WebhookAlertHandler",
+    "TelegramAlertHandler",
     "TradeExporter",
 ]

@@ -26,7 +26,12 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from core.backtest.data_loader import fetch_ohlcv_ccxt
-from core.dashboard import AlertManager, ConsoleAlertHandler, WebhookAlertHandler
+from core.dashboard import (
+    AlertManager,
+    ConsoleAlertHandler,
+    TelegramAlertHandler,
+    WebhookAlertHandler,
+)
 from core.exchange.kucoin import KuCoinConnector
 from core.live.order_manager import OrderManager, OrderResultStatus
 from core.ruleguard import (
@@ -86,6 +91,12 @@ class LiveTradingConfig:
     max_trades_per_day: int = 6
 
     alert_webhook_url: str = ""
+
+    # Telegram alerts (optional). Set both to enable phone notifications.
+    # See TelegramAlertHandler docstring for setup via @BotFather.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     state_dir: Path = None
 
     # Aggressive regime filter: trade in bear markets if per-symbol trend is strong
@@ -140,6 +151,8 @@ class LiveTradingConfig:
             max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "6")),
             poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "3600")),
             alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", ""),
+            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             state_dir=Path(os.getenv("STATE_DIR", "data/live_state")),
             aggressive_mode=os.getenv("AGGRESSIVE_MODE", "false").lower() == "true",
             bear_mode=os.getenv("BEAR_MODE", "false").lower() == "true",
@@ -246,6 +259,14 @@ class LiveTradingEngine:
             self.alerts.add_handler(
                 WebhookAlertHandler(config.alert_webhook_url)
             )
+        if config.telegram_bot_token and config.telegram_chat_id:
+            self.alerts.add_handler(
+                TelegramAlertHandler(
+                    bot_token=config.telegram_bot_token,
+                    chat_id=config.telegram_chat_id,
+                )
+            )
+            logger.info("telegram_alerts_enabled")
 
         # State
         self._running = False
@@ -297,6 +318,8 @@ class LiveTradingEngine:
         else:
             print(f"  Profile:    standard")
         print(f"  Poll:       {self.config.poll_interval_seconds}s")
+        if self.config.telegram_bot_token and self.config.telegram_chat_id:
+            print(f"  Telegram:   ON (phone notifications enabled)")
         print("=" * 60)
         print()
         print("  Press Ctrl+C to stop")
