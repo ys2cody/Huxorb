@@ -91,6 +91,11 @@ class LiveTradingConfig:
     # Aggressive regime filter: trade in bear markets if per-symbol trend is strong
     aggressive_mode: bool = False
 
+    # Bear mode: ignore regime filter, trade only mean-reversion on BTC/ETH
+    # Designed for capital preservation + small gains during crypto bear markets.
+    # Expected: £1-5/month on £100, not a route to riches.
+    bear_mode: bool = False
+
     @classmethod
     def from_env(cls, env_file: Optional[Path] = None) -> "LiveTradingConfig":
         """
@@ -134,6 +139,7 @@ class LiveTradingConfig:
             alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL", ""),
             state_dir=Path(os.getenv("STATE_DIR", "data/live_state")),
             aggressive_mode=os.getenv("AGGRESSIVE_MODE", "false").lower() == "true",
+            bear_mode=os.getenv("BEAR_MODE", "false").lower() == "true",
         )
 
     def __post_init__(self):
@@ -153,6 +159,17 @@ class LiveTradingEngine:
 
     def __init__(self, config: LiveTradingConfig):
         self.config = config
+
+        # Bear mode overrides: safer setup for bear markets
+        if config.bear_mode:
+            if config.aggressive_mode:
+                logger.warning("bear_mode_overrides_aggressive_mode")
+                config.aggressive_mode = False
+            config.symbols = ["BTC/USDT", "ETH/USDT"]
+            config.risk_per_trade_pct = Decimal("0.75")
+            config.max_open_trades = 2
+            config.max_trades_per_day = 4
+            logger.info("bear_mode_active", symbols=config.symbols, risk=str(config.risk_per_trade_pct))
 
         # KuCoin connector
         self.connector = KuCoinConnector(
@@ -269,7 +286,12 @@ class LiveTradingEngine:
         print(f"  Balance:    {self._starting_balance} USDT")
         print(f"  Symbols:    {len(self.config.symbols)} ({', '.join(self.config.symbols[:5])}...)")
         print(f"  Risk/trade: {self.config.risk_per_trade_pct}%")
-        print(f"  Aggressive: {'ON (relaxed macro gate)' if self.config.aggressive_mode else 'OFF'}")
+        if self.config.bear_mode:
+            print(f"  Bear Mode:  ON (mean-reversion only, BTC/ETH)")
+        elif self.config.aggressive_mode:
+            print(f"  Aggressive: ON (relaxed macro gate)")
+        else:
+            print(f"  Profile:    standard")
         print(f"  Poll:       {self.config.poll_interval_seconds}s")
         print("=" * 60)
         print()
@@ -364,31 +386,41 @@ class LiveTradingEngine:
 
         # Regime
         regime_state = self.regime_filter.classify(btc_daily, ohlcv)
-        if not regime_state.is_tradeable():
-            logger.debug("live_no_regime", symbol=symbol, regime=regime_state.regime.value)
-            return
 
         # Strategy signal
         signal = None
         strategy_name = None
 
-        if regime_state.regime == Regime.TREND:
-            sig = self.trend_strategy.check_signal(ohlcv)
+        if self.config.bear_mode:
+            # Bear mode: mean-reversion only, bypass regime filter.
+            # We pass btc_macro_bearish=False to stop the strategy rejecting
+            # signals purely because BTC is weak (that's the whole point here).
+            sig = self.meanrev_strategy.check_signal(ohlcv, btc_macro_bearish=False)
             if sig.has_signal:
                 signal = sig
-                strategy_name = "trend_following"
-            else:
-                sig = self.breakout_strategy.check_signal(ohlcv)
+                strategy_name = "mean_reversion_bear"
+        else:
+            if not regime_state.is_tradeable():
+                logger.debug("live_no_regime", symbol=symbol, regime=regime_state.regime.value)
+                return
+
+            if regime_state.regime == Regime.TREND:
+                sig = self.trend_strategy.check_signal(ohlcv)
                 if sig.has_signal:
                     signal = sig
-                    strategy_name = "breakout"
+                    strategy_name = "trend_following"
+                else:
+                    sig = self.breakout_strategy.check_signal(ohlcv)
+                    if sig.has_signal:
+                        signal = sig
+                        strategy_name = "breakout"
 
-        elif regime_state.regime == Regime.RANGE:
-            btc_bearish = not regime_state.btc_ema_golden
-            sig = self.meanrev_strategy.check_signal(ohlcv, btc_macro_bearish=btc_bearish)
-            if sig.has_signal:
-                signal = sig
-                strategy_name = "mean_reversion"
+            elif regime_state.regime == Regime.RANGE:
+                btc_bearish = not regime_state.btc_ema_golden
+                sig = self.meanrev_strategy.check_signal(ohlcv, btc_macro_bearish=btc_bearish)
+                if sig.has_signal:
+                    signal = sig
+                    strategy_name = "mean_reversion"
 
         if signal is None:
             return
