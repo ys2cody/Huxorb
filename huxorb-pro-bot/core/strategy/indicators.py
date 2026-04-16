@@ -82,9 +82,10 @@ def adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> 
     plus_di = 100 * (plus_dm_smooth / atr_val)
     minus_di = 100 * (minus_dm_smooth / atr_val)
 
-    # DX and ADX
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
-    adx_val = dx.ewm(span=period, adjust=False).mean()
+    # DX and ADX — guard against zero denominator (happens in flat markets)
+    denom = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / denom
+    adx_val = dx.fillna(0).ewm(span=period, adjust=False).mean()
 
     return adx_val
 
@@ -109,8 +110,10 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(span=period, adjust=False).mean()
     avg_loss = loss.ewm(span=period, adjust=False).mean()
 
-    rs = avg_gain / avg_loss
+    # Guard: avg_loss == 0 means no losses → RSI = 100 (fully overbought)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi_val = 100 - (100 / (1 + rs))
+    rsi_val = rsi_val.fillna(100)  # No losses → RSI = 100
 
     return rsi_val
 

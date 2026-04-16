@@ -121,11 +121,12 @@ class TrendFollowingStrategy:
             return self._no_signal("50ema_below_200ema", price_above_200, ema_alignment)
 
         # --- Condition 2: Pullback detection ---
-        # Price should be near 20 EMA or 50 EMA (within 1%)
+        # Price should be near 20 EMA or 50 EMA (within 3%)
+        # 1% was too tight for 4h crypto bars (~1.5-2% avg range per bar)
         dist_to_20 = abs(curr_close - curr_ema20) / curr_close
         dist_to_50 = abs(curr_close - curr_ema50) / curr_close
 
-        near_support = (dist_to_20 < 0.01) or (dist_to_50 < 0.01)
+        near_support = (dist_to_20 < 0.03) or (dist_to_50 < 0.03)
 
         if not near_support:
             return self._no_signal(
@@ -154,7 +155,7 @@ class TrendFollowingStrategy:
 
             # c) Higher high
             if confirmation_type is None:
-                hh = higher_high(high, lookback=1)
+                hh = higher_high(close, lookback=1)
                 if hh.iloc[-1]:
                     confirmation_type = "higher_high"
 

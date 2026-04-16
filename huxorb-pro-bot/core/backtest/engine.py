@@ -125,7 +125,13 @@ class BacktestEngine:
                     daily_losses = 0
 
                 # --- 1. Check open trades for stop/tp hits ---
+                prev_closed = len(tracker.closed_trades)
                 self._check_exits(tracker, bar_time, bar_high, bar_low)
+                for t in tracker.closed_trades[prev_closed:]:
+                    if t.is_winner:
+                        consecutive_losses = 0
+                    else:
+                        consecutive_losses += 1
 
                 # --- 2. Risk gates ---
                 if len(tracker.open_trades) >= self.config.max_open_trades:
@@ -240,13 +246,6 @@ class BacktestEngine:
             for trade in list(tracker.open_trades):
                 if trade.symbol == symbol:
                     tracker.close_trade(trade, last_time, last_close, "end_of_data")
-
-        # Update consecutive losses
-        for trade in tracker.closed_trades:
-            if trade.is_winner:
-                consecutive_losses = 0
-            else:
-                consecutive_losses += 1
 
         logger.info(
             "backtest_complete",
