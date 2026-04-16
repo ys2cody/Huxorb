@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ============================================================================
@@ -89,6 +89,14 @@ class Balance(BaseModel):
             raise ValueError("Balance cannot be negative")
         return v
 
+    @model_validator(mode='after')
+    def total_must_match(self):
+        if self.total != self.free + self.used:
+            raise ValueError(
+                f"Total {self.total} != free {self.free} + used {self.used}"
+            )
+        return self
+
 
 class Order(BaseModel):
     """Order representation."""
@@ -118,6 +126,15 @@ class Order(BaseModel):
         if v < 0:
             raise ValueError("Amount/filled/remaining cannot be negative")
         return v
+
+    @model_validator(mode='after')
+    def remaining_must_match(self):
+        expected = self.amount - self.filled
+        if self.remaining != expected:
+            raise ValueError(
+                f"Remaining {self.remaining} != amount {self.amount} - filled {self.filled}"
+            )
+        return self
 
     @property
     def is_open(self) -> bool:
@@ -218,6 +235,10 @@ def normalize_symbol(symbol: str) -> str:
     if '/' in symbol:
         return symbol
 
+    # Handle BTC-USDT format (common in KuCoin, Kraken, etc.)
+    if '-' in symbol:
+        return symbol.replace('-', '/')
+
     # Handle BTCUSDT format (common in Binance)
     # We need to split intelligently - assume quote is USDT, USDC, BUSD, USD, BTC, ETH
     quote_currencies = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'EUR', 'GBP']
@@ -226,10 +247,6 @@ def normalize_symbol(symbol: str) -> str:
         if symbol.endswith(quote):
             base = symbol[:-len(quote)]
             return f"{base}/{quote}"
-
-    # Handle BTC-USDT format (common in other exchanges)
-    if '-' in symbol:
-        return symbol.replace('-', '/')
 
     # Fallback: assume last 4 chars are quote (USDT)
     if len(symbol) > 4:

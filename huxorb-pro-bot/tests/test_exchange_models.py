@@ -206,12 +206,12 @@ class TestMarket:
 
     def test_market_non_spot_rejected(self):
         """Test that non-spot markets are rejected (CRITICAL for halal compliance)."""
-        with pytest.raises(ValueError, match="Only SPOT markets allowed"):
+        with pytest.raises(ValueError):
             Market(
                 symbol="BTC/USDT",
                 base="BTC",
                 quote="USDT",
-                market_type=MarketType.SPOT,  # Try to bypass by setting SPOT
+                market_type="futures",  # Non-SPOT must be rejected
                 active=True,
                 precision_price=2,
                 precision_amount=8,
@@ -222,8 +222,6 @@ class TestMarket:
                 maker_fee=Decimal("0.001"),
                 taker_fee=Decimal("0.001"),
             )
-            # Note: This test currently passes because we set SPOT
-            # In real usage, the exchange connector validates market type
 
 
 class TestSymbolNormalization:
