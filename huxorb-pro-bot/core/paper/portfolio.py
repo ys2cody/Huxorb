@@ -297,7 +297,7 @@ class PaperPortfolio:
 
     @property
     def total_pnl(self) -> Decimal:
-        return sum(t.pnl for t in self._trades)
+        return sum((t.pnl for t in self._trades), Decimal("0"))
 
     def equity(self, prices: Dict[str, Decimal]) -> Decimal:
         """Total equity = cash + mark-to-market positions."""
