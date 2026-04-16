@@ -73,7 +73,7 @@ class PaperTradingConfig:
             self.symbols = [
                 "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
                 "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT",
-                "MATIC/USDT", "LTC/USDT", "NEAR/USDT", "UNI/USDT", "ATOM/USDT",
+                "POL/USDT", "LTC/USDT", "NEAR/USDT", "UNI/USDT", "ATOM/USDT",
                 "APT/USDT", "FIL/USDT", "ARB/USDT", "INJ/USDT", "OP/USDT",
             ]
         if self.state_dir is None:
