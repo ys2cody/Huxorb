@@ -36,6 +36,7 @@ from core.ruleguard import (
     ConfigProfiles,
     RuleGuard,
 )
+from core.strategy.breakout import BreakoutStrategy
 from core.strategy.regime import Regime, RegimeFilter
 from core.strategy.trend_following import TrendFollowingStrategy
 from core.strategy.mean_reversion import MeanReversionStrategy
@@ -180,6 +181,7 @@ class LiveTradingEngine:
         self.regime_filter = RegimeFilter()
         self.trend_strategy = TrendFollowingStrategy()
         self.meanrev_strategy = MeanReversionStrategy()
+        self.breakout_strategy = BreakoutStrategy()
 
         # Alerts
         self.alerts = AlertManager()
@@ -338,6 +340,11 @@ class LiveTradingEngine:
             if sig.has_signal:
                 signal = sig
                 strategy_name = "trend_following"
+            else:
+                sig = self.breakout_strategy.check_signal(ohlcv)
+                if sig.has_signal:
+                    signal = sig
+                    strategy_name = "breakout"
 
         elif regime_state.regime == Regime.RANGE:
             btc_bearish = not regime_state.btc_ema_golden

@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from core.backtest.trade_tracker import TradeTracker, BacktestTrade
+from core.strategy.breakout import BreakoutStrategy, BreakoutConfig
 from core.strategy.regime import RegimeFilter, Regime, RegimeConfig
 from core.strategy.trend_following import TrendFollowingStrategy, TrendFollowingConfig
 from core.strategy.mean_reversion import MeanReversionStrategy, MeanReversionConfig
@@ -54,10 +55,16 @@ class BacktestConfig:
     regime: RegimeConfig = None
     trend: TrendFollowingConfig = None
     meanrev: MeanReversionConfig = None
+    breakout: BreakoutConfig = None
 
     # Execution
     commission_pct: Decimal = Decimal("0.1")  # 0.1% per side (KuCoin maker)
     slippage_pct: Decimal = Decimal("0.05")   # 0.05% simulated slippage
+
+    # Trailing stop
+    use_trailing_stop: bool = False
+    trail_activation_r: float = 1.5   # Activate trailing after 1.5R gain
+    trail_atr_multiplier: float = 2.0 # Trail = 2 ATR below current close
 
     # Bars needed for warmup (longest indicator: 200 EMA)
     warmup_bars: int = 210
@@ -66,6 +73,52 @@ class BacktestConfig:
         self.regime = self.regime or RegimeConfig()
         self.trend = self.trend or TrendFollowingConfig()
         self.meanrev = self.meanrev or MeanReversionConfig()
+        self.breakout = self.breakout or BreakoutConfig()
+
+    @classmethod
+    def conservative(cls, symbols) -> "BacktestConfig":
+        """Low risk, low frequency. Suitable for beginners."""
+        return cls(
+            symbols=symbols,
+            starting_balance=Decimal("10000"),
+            risk_per_trade_pct=Decimal("0.5"),
+            max_open_trades=2,
+            max_trades_per_day=3,
+            max_consecutive_losses=3,
+            use_trailing_stop=False,
+        )
+
+    @classmethod
+    def moderate(cls, symbols) -> "BacktestConfig":
+        """Balanced risk/return. Good starting point for live trading."""
+        return cls(
+            symbols=symbols,
+            starting_balance=Decimal("10000"),
+            risk_per_trade_pct=Decimal("1.0"),
+            max_open_trades=3,
+            max_trades_per_day=5,
+            max_consecutive_losses=4,
+            use_trailing_stop=True,
+            trail_activation_r=1.5,
+        )
+
+    @classmethod
+    def aggressive(cls, symbols) -> "BacktestConfig":
+        """Higher risk, maximum compounding. For experienced traders only."""
+        return cls(
+            symbols=symbols,
+            starting_balance=Decimal("10000"),
+            risk_per_trade_pct=Decimal("1.5"),
+            max_open_trades=4,
+            max_trades_per_day=6,
+            max_consecutive_losses=5,
+            max_daily_loss_pct=Decimal("5.0"),
+            max_total_risk_pct=Decimal("6.0"),
+            use_trailing_stop=True,
+            trail_activation_r=1.0,
+            trail_atr_multiplier=1.5,
+            breakout=BreakoutConfig(risk_reward_ratio=3.0),
+        )
 
 
 class BacktestEngine:
@@ -80,6 +133,9 @@ class BacktestEngine:
         self.regime_filter = RegimeFilter(config.regime)
         self.trend_strategy = TrendFollowingStrategy(config.trend)
         self.meanrev_strategy = MeanReversionStrategy(config.meanrev)
+        self.breakout_strategy = BreakoutStrategy(config.breakout)
+        # trailing stop state: {trade_id: current_trail_stop}
+        self._trail_stops: Dict[int, Decimal] = {}
 
     def run(
         self,
@@ -126,7 +182,7 @@ class BacktestEngine:
 
                 # --- 1. Check open trades for stop/tp hits ---
                 prev_closed = len(tracker.closed_trades)
-                self._check_exits(tracker, bar_time, bar_high, bar_low)
+                self._check_exits(tracker, bar_time, bar_high, bar_low, bar_close)
                 for t in tracker.closed_trades[prev_closed:]:
                     if t.is_winner:
                         consecutive_losses = 0
@@ -172,10 +228,16 @@ class BacktestEngine:
                 strategy_name = None
 
                 if regime_state.regime == Regime.TREND:
+                    # Try trend-following first, then breakout
                     sig = self.trend_strategy.check_signal(ohlcv_slice)
                     if sig.has_signal:
                         signal = sig
                         strategy_name = "trend_following"
+                    else:
+                        sig = self.breakout_strategy.check_signal(ohlcv_slice)
+                        if sig.has_signal:
+                            signal = sig
+                            strategy_name = "breakout"
 
                 elif regime_state.regime == Regime.RANGE:
                     btc_bearish = not regime_state.btc_ema_golden
@@ -227,6 +289,8 @@ class BacktestEngine:
                 )
 
                 trades_today += 1
+                if self.config.use_trailing_stop:
+                    self._trail_stops[trade.trade_id] = stop_loss
 
                 logger.debug(
                     "backtest_entry",
@@ -255,41 +319,51 @@ class BacktestEngine:
 
         return tracker
 
+    def _exit_price(self, raw_price: Decimal, side: str = "sell") -> Decimal:
+        """Apply slippage and commission to an exit price."""
+        slippage = raw_price * self.config.slippage_pct / Decimal("100")
+        price = raw_price - slippage
+        commission = price * self.config.commission_pct / Decimal("100")
+        return price - commission
+
     def _check_exits(
         self,
         tracker: TradeTracker,
         bar_time: datetime,
         bar_high: float,
         bar_low: float,
+        bar_close: float = None,
     ) -> None:
-        """Check if any open trades hit stop loss or take profit."""
+        """Check if any open trades hit stop loss, take profit, or trailing stop."""
         for trade in list(tracker.open_trades):
-            # Stop loss hit (low touches or goes below SL)
-            if bar_low <= float(trade.stop_loss):
-                exit_price = trade.stop_loss
-                # Apply slippage on exit
-                slippage = exit_price * self.config.slippage_pct / Decimal("100")
-                exit_price = exit_price - slippage  # Selling lower (worse fill)
+            effective_stop = trade.stop_loss
 
-                # Subtract commission
-                commission = exit_price * trade.quantity * self.config.commission_pct / Decimal("100")
-                exit_price = exit_price - commission / trade.quantity
+            # --- Trailing stop update ---
+            if self.config.use_trailing_stop and bar_close is not None:
+                trail_stop = self._trail_stops.get(trade.trade_id, trade.stop_loss)
+                risk = trade.entry_price - trade.stop_loss
+                gain = Decimal(str(bar_close)) - trade.entry_price
 
-                tracker.close_trade(trade, bar_time, exit_price, "stop_loss")
+                if gain >= risk * Decimal(str(self.config.trail_activation_r)):
+                    # Trail: keep stop at max(current trail, close - trail_atr_multiplier*risk)
+                    new_trail = Decimal(str(bar_close)) - risk * Decimal(str(self.config.trail_atr_multiplier))
+                    new_trail = max(new_trail, trail_stop)
+                    self._trail_stops[trade.trade_id] = new_trail
+                    effective_stop = new_trail
+
+            # --- Stop loss / trail stop hit ---
+            if bar_low <= float(effective_stop):
+                exit_p = self._exit_price(effective_stop)
+                reason = "trailing_stop" if effective_stop > trade.stop_loss else "stop_loss"
+                tracker.close_trade(trade, bar_time, exit_p, reason)
+                self._trail_stops.pop(trade.trade_id, None)
                 continue
 
-            # Take profit hit (high touches or goes above TP)
+            # --- Take profit hit ---
             if bar_high >= float(trade.take_profit):
-                exit_price = trade.take_profit
-                # Apply slippage
-                slippage = exit_price * self.config.slippage_pct / Decimal("100")
-                exit_price = exit_price - slippage
-
-                # Subtract commission
-                commission = exit_price * trade.quantity * self.config.commission_pct / Decimal("100")
-                exit_price = exit_price - commission / trade.quantity
-
-                tracker.close_trade(trade, bar_time, exit_price, "take_profit")
+                exit_p = self._exit_price(trade.take_profit)
+                tracker.close_trade(trade, bar_time, exit_p, "take_profit")
+                self._trail_stops.pop(trade.trade_id, None)
                 continue
 
     def _daily_pnl(self, tracker: TradeTracker, current_date) -> Decimal:

@@ -133,6 +133,9 @@ class PaperTradingLoop:
         self.meanrev_strategy = __import__(
             "core.strategy.mean_reversion", fromlist=["MeanReversionStrategy"]
         ).MeanReversionStrategy()
+        self.breakout_strategy = __import__(
+            "core.strategy.breakout", fromlist=["BreakoutStrategy"]
+        ).BreakoutStrategy()
 
         self._running = False
         self._last_bar_time: Dict[str, datetime] = {}
@@ -257,6 +260,11 @@ class PaperTradingLoop:
             if sig.has_signal:
                 signal = sig
                 strategy_name = "trend_following"
+            else:
+                sig = self.breakout_strategy.check_signal(ohlcv)
+                if sig.has_signal:
+                    signal = sig
+                    strategy_name = "breakout"
 
         elif regime_state.regime == Regime.RANGE:
             btc_bearish = not regime_state.btc_ema_golden
