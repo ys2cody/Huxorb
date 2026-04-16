@@ -10,7 +10,13 @@ Components:
 """
 
 from core.dashboard.display import PortfolioDashboard
-from core.dashboard.alerts import AlertManager, AlertLevel, Alert
+from core.dashboard.alerts import (
+    AlertManager,
+    AlertLevel,
+    Alert,
+    ConsoleAlertHandler,
+    WebhookAlertHandler,
+)
 from core.dashboard.exporter import TradeExporter
 
 __all__ = [
@@ -18,5 +24,7 @@ __all__ = [
     "AlertManager",
     "AlertLevel",
     "Alert",
+    "ConsoleAlertHandler",
+    "WebhookAlertHandler",
     "TradeExporter",
 ]
