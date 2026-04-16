@@ -78,7 +78,9 @@ class LiveTradingConfig:
     poll_interval_seconds: int = 3600
     ohlcv_limit: int = 300
 
-    starting_balance: Decimal = Decimal("500")
+    # If None, the engine fetches the live USDT balance from KuCoin
+    # at startup and uses that as the baseline for risk/drawdown tracking.
+    starting_balance: Optional[Decimal] = None
     risk_per_trade_pct: Decimal = Decimal("1.5")
     max_open_trades: int = 4
     max_trades_per_day: int = 6
@@ -117,7 +119,11 @@ class LiveTradingConfig:
                 "NEAR/USDT,UNI/USDT,ATOM/USDT,APT/USDT,FIL/USDT,ARB/USDT,"
                 "INJ/USDT,OP/USDT",
             ).split(","),
-            starting_balance=Decimal(os.getenv("STARTING_BALANCE", "500")),
+            starting_balance=(
+                Decimal(os.environ["STARTING_BALANCE"])
+                if os.getenv("STARTING_BALANCE")
+                else None
+            ),
             risk_per_trade_pct=Decimal(os.getenv("RISK_PER_TRADE_PCT", "1.5")),
             max_open_trades=int(os.getenv("MAX_OPEN_TRADES", "4")),
             max_trades_per_day=int(os.getenv("MAX_TRADES_PER_DAY", "6")),
@@ -162,9 +168,26 @@ class LiveTradingEngine:
             dry_run=config.dry_run,
         )
 
+        # Resolve starting balance: explicit override OR live USDT balance from KuCoin
+        if config.starting_balance is not None:
+            starting_balance = config.starting_balance
+            logger.info("starting_balance_override", value=str(starting_balance))
+        else:
+            balances = self.connector.get_balance()
+            usdt = balances.get("USDT")
+            starting_balance = usdt.total if usdt else Decimal("0")
+            if starting_balance <= 0:
+                raise ValueError(
+                    "No USDT balance found on KuCoin account. "
+                    "Deposit USDT or set STARTING_BALANCE in your .env file."
+                )
+            logger.info("starting_balance_from_exchange", value=str(starting_balance))
+
+        self._starting_balance = starting_balance
+
         # Risk manager
         self.risk = RiskManager(
-            starting_balance=config.starting_balance,
+            starting_balance=starting_balance,
             risk_per_trade_pct=config.risk_per_trade_pct,
             max_quantity=Decimal("10"),
             max_open_trades=config.max_open_trades,
@@ -237,7 +260,8 @@ class LiveTradingEngine:
         print("=" * 60)
         print(f"  Mode:       {'DRY RUN' if self.config.dry_run else 'LIVE EXECUTION'}")
         print(f"  Exchange:   KuCoin {'SANDBOX' if self.config.testnet else 'PRODUCTION'}")
-        print(f"  Symbols:    {', '.join(self.config.symbols)}")
+        print(f"  Balance:    {self._starting_balance} USDT")
+        print(f"  Symbols:    {len(self.config.symbols)} ({', '.join(self.config.symbols[:5])}...)")
         print(f"  Risk/trade: {self.config.risk_per_trade_pct}%")
         print(f"  Poll:       {self.config.poll_interval_seconds}s")
         print("=" * 60)
