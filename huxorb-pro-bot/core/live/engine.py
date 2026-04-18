@@ -338,7 +338,6 @@ class LiveTradingEngine:
                 break
             except Exception as exc:
                 logger.error("live_cycle_error", error=str(exc), cycle=cycle)
-                self.alerts.on_drawdown_warning(0, Decimal("0"), f"cycle_error: {exc}")
 
             if self._running and (max_cycles is None or cycle < max_cycles):
                 logger.info(
