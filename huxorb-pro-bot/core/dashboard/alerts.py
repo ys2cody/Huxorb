@@ -285,6 +285,23 @@ class AlertManager:
             metadata=summary,
         ))
 
+    def on_bear_mode_exit(self, btc_price: float, num_symbols: int, risk_pct: str) -> None:
+        """Call when bear mode auto-exits due to BTC macro recovery."""
+        self._dispatch(Alert(
+            level=AlertLevel.INFO,
+            title="🚀 Bear Mode Exit — Market Recovery",
+            message=(
+                f"BTC broke above 200-day MA + golden cross confirmed.\n"
+                f"Switching to standard mode: {num_symbols} symbols, {risk_pct}% risk.\n"
+                f"BTC: ${btc_price:.0f} — ready to catch the recovery rally."
+            ),
+            metadata={
+                "btc_price": btc_price,
+                "symbols": num_symbols,
+                "risk_pct": risk_pct,
+            },
+        ))
+
     # ------------------------------------------------------------------ #
     # Threshold Checks
     # ------------------------------------------------------------------ #

@@ -634,11 +634,10 @@ class LiveTradingEngine:
             self.risk.max_trades_per_day = self.config.max_trades_per_day
 
             # Send alert
-            self.alerts.on_drawdown_warning(
-                0,
-                Decimal("0"),
-                f"AUTO-SWITCH: Bear mode OFF — BTC recovered (${btc_close.iloc[-1]:.0f} > 200MA). "
-                f"Trading {len(self.config.symbols)} symbols with {self.config.risk_per_trade_pct}% risk."
+            self.alerts.on_bear_mode_exit(
+                btc_price=float(btc_close.iloc[-1]),
+                num_symbols=len(self.config.symbols),
+                risk_pct=str(self.config.risk_per_trade_pct),
             )
 
             logger.info(
